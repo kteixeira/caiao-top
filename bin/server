@@ -1,0 +1,73 @@
+#!/usr/bin/env node
+/**
+ * Created by renato on 10/09/2018.
+ * Author: MediaMonks SP
+ * Developer: Renato Sousa
+ *
+ */
+const eventListener = require("../app/controllers/SocketController");
+
+const connector = require('../app/providers/mongodb/Connector');
+
+/******* Start Mongoose Database connection *******/
+connector.connect();
+/** **/
+
+function setTerminalTitle(title) {
+    process.stdout.write(
+        String.fromCharCode(27) + "]0;" + title + String.fromCharCode(7));
+}
+
+setTerminalTitle("Server Socket");
+
+const WebSocketServer = require('websocket').server;
+const http = require('http');
+const config = require('../configs/AppConfig');
+const server = http.createServer(function(request, response) {
+    console.log((new Date()) + ' Received request for ' + request.url);
+    response.writeHead(404);
+    response.end();
+});
+const port = config.socket_server.PORT;
+
+server.listen(port, function() {
+    console.log((new Date()) + ' Server is listening on port ' + port);
+});
+
+wsServer = new WebSocketServer({
+    httpServer: server,
+    autoAcceptConnections: false
+});
+
+function originIsAllowed(origin) {
+    console.log("checking origin: ", origin.remoteAddress.toString());
+    return true;
+}
+
+wsServer.on('request', function(request) {
+    if (!originIsAllowed(request)) {
+        request.reject();
+        console.log((new Date()) + ' Connection from origin ' + request.origin + ' rejected.');
+        return;
+    }
+
+    const connection = request.accept('', request.origin);
+
+    connection.send(JSON.stringify({"type": "ServerHandshake", "connected": true}));
+    console.log((new Date()) + ' Connection accepted.');
+
+    connection.on('message', function(message) {
+        if (message.type === 'utf8') {
+            const data = JSON.parse(message.utf8Data);
+
+            eventListener.eventListener(data, function (response) {
+                wsServer.broadcast(JSON.stringify(response));
+                console.log(response);
+            })
+        }
+    });
+
+    connection.on('close', function(reasonCode, description) {
+        console.log((new Date()) + ' Peer ' + connection.remoteAddress + ' disconnected  :::  ReasonCode: ' + reasonCode + '  :::  Description: ' + description);
+    });
+});
